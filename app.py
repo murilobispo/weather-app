@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import requests
 from datetime import datetime
-import plotly.express as px
 
 st.set_page_config(page_title="Weather App", 
                    layout="centered")
@@ -12,7 +12,7 @@ initial_states = {
     "current_time": "",
     "current_city": "",
     "current_week_day": "",
-    "temp_description": ["",""],
+    "weather_description": ["",""],
     "past_temp": 0,
     "temp_diff": 0,
     "temp_unit": "",
@@ -82,26 +82,63 @@ def GET_DATA(id):
     response = requests.get(url, params=params, timeout=10)
     response.raise_for_status()
     data = response.json()
-    #st.write(data)
-
+    st.write(data)
+    
     current_temperature = data["current"]["temperature_2m"]
     current_time = data["current"]["time"]
     current_code = data["current"]["weather_code"]
 
-    data_time = data["hourly"]["time"]
-    data_temperature= data["hourly"]["temperature_2m"]
-
+    hourly_temperature= data["hourly"]["temperature_2m"]
+    hourly_time = data["hourly"]["time"]
+    hourly_code = data["hourly"]["weather_code"]
+    hourly_description_text = [decode_weathercode(c)[1] for c in hourly_code]
+    hourly_description_emoji = [decode_weathercode(c)[0] for c in hourly_code]
+    
+    st.write()
     if (current_time[:-2] + "00") == current_time:
-        st.session_state.past_temp = data_temperature[data_time.index(current_time) - 1]
+        st.session_state.past_temp = hourly_temperature[hourly_time.index(current_time) - 1]
     else:
-        st.session_state.past_temp = data_temperature[data_time.index(current_time[:-2] + "00")]
+        st.session_state.past_temp = hourly_temperature[hourly_time.index(current_time[:-2] + "00")]
     
     temp_unit = data["current_units"]["temperature_2m"]
+
+    week_temperature = pd.DataFrame({
+        "time": hourly_time,
+        "temperature_2m": hourly_temperature,
+        "description_text": hourly_description_text,
+        "description_emoji": hourly_description_emoji
+    })
+    week_temperature["weekday"] = week_temperature["time"].apply(get_week_day)
+    week_temperature["time"] = pd.to_datetime(week_temperature["time"])
+
+    week_dict = {}
+    for day in week_temperature["weekday"].unique():  
+        week_dict[day] = week_temperature[week_temperature["weekday"] == day]\
+                            .drop(columns="weekday")\
+                            .reset_index(drop=True)
+
+    for i, day in enumerate(list(week_dict.keys())):
+        if i == 0:
+            week_dict[day] = week_dict[day][
+                week_dict[day]["time"] >= (current_time[:-2] + "00")
+            ].reset_index(drop=True)
+
+            week_dict[day].loc[0, "time"] = current_time
+            week_dict[day].loc[0, "temperature_2m"] = current_temperature
+
+        if len(week_dict[day]) > 8:
+            week_dict[day] = week_dict[day].iloc[
+                np.linspace(0, len(week_dict[day]) - 1, 8).astype(int)
+            ].reset_index(drop=True)
+        else:
+            week_dict[day] = week_dict[day].iloc[::3].reset_index(drop=True)
+
+    st.write(week_dict)
 
     st.session_state.current_temp = current_temperature
     st.session_state.current_time = current_time
     st.session_state.current_week_day = get_week_day(current_time)
-    st.session_state.temp_description = decode_weathercode(current_code)
+    st.session_state.weather_description = decode_weathercode(current_code)
     st.session_state.temp_diff = st.session_state.current_temp - st.session_state.past_temp
     st.session_state.temp_unit = temp_unit
 
@@ -148,7 +185,8 @@ city_input = st.text_input(label="city-input",
                            )
 if city_input:
     search_city(city_input)
-    
+
+st.space(size="stretch")
 col0, col1 = st.columns([2,1],
                         vertical_alignment="center",
                         gap="medium",
@@ -161,12 +199,12 @@ with col0:
                                   )
     with subCol0:
         metric = st.metric(label=st.session_state.current_city, 
-                        value=f"{st.session_state.temp_description[0]}{round(st.session_state.current_temp)} {st.session_state.temp_unit}", 
+                        value=f"{st.session_state.weather_description[0]}{round(st.session_state.current_temp)} {st.session_state.temp_unit}", 
                         delta= None if st.session_state.temp_diff == 0 else f"{round(st.session_state.temp_diff, 1)} {st.session_state.temp_unit}",
                         width="stretch",
                         )
     with subCol1:
-        st.markdown(body=f"**Weather**<br>{st.session_state.current_week_day}, {st.session_state.current_time[-5:]}<br>{st.session_state.temp_description[1]}",
+        st.markdown(body=f"**Weather**<br>{st.session_state.current_week_day}, {st.session_state.current_time[-5:]}<br>{st.session_state.weather_description[1]}",
                     text_alignment="right",
                     unsafe_allow_html=True,
                     width="stretch"
