@@ -14,7 +14,7 @@ initial_states = {
     "current_city": "",
     "current_week_day": "",
     "weather_description": ["",""],
-    "week_temeprature_data": "",
+    "week_temperature_data": "",
     "past_temp": 0,
     "temp_diff": 0,
     "temp_unit": "",
@@ -84,13 +84,15 @@ def GET_DATA(id):
     response = requests.get(url, params=params, timeout=10)
     response.raise_for_status()
     data = response.json()
-    st.write(data)
+    #st.write(data)
     
     current_temperature = data["current"]["temperature_2m"]
     current_time = data["current"]["time"]
+
     current_code = data["current"]["weather_code"]
 
-    hourly_temperature= data["hourly"]["temperature_2m"]
+    hourly_temperature = data["hourly"]["temperature_2m"]
+    hourly_temperature = [round(i) for i in hourly_temperature]
     hourly_time = data["hourly"]["time"]
     hourly_code = data["hourly"]["weather_code"]
     hourly_description_text = [decode_weathercode(c)[1] for c in hourly_code]
@@ -137,14 +139,14 @@ def GET_DATA(id):
             week_dict[day]["time"]
         ).dt.strftime("%H:%M")
 
-    st.write(week_dict)
+    #st.write(week_dict)
     st.session_state.current_temp = current_temperature
     st.session_state.current_time = current_time
     st.session_state.current_week_day = get_week_day(current_time)
     st.session_state.weather_description = decode_weathercode(current_code)
     st.session_state.temp_diff = st.session_state.current_temp - st.session_state.past_temp
     st.session_state.temp_unit = temp_unit
-    st.session_state.week_temeprature_data = week_dict
+    st.session_state.week_temperature_data = week_dict
 
 def search_city(city):
     with st.spinner("Wait for it..."):
@@ -190,55 +192,51 @@ city_input = st.text_input(label="city-input",
 if city_input:
     search_city(city_input)
 
-st.space(size="stretch")
-col0, col1 = st.columns([2,1],
-                        vertical_alignment="center",
-                        gap="medium",
+@st.fragment
+def main():
+    week_options = st.segmented_control(label="Week Selection",
+                                        label_visibility="collapsed",
+                                        options = st.session_state.week_temperature_data,
+                                        format_func = lambda x: x[:3],
+                                        default = st.session_state.current_week_day
+                                        )
+
+    col0, col1 = st.columns([2,1],
+                            vertical_alignment="center",
+                            gap="medium",
+                            )
+    with col0:
+        subCol0, subCol1 = st.columns(2,
+                                    vertical_alignment="center",
+                                    )
+        with subCol0:
+            metric = st.metric(label=st.session_state.current_city, 
+                            value=f"{st.session_state.weather_description[0]}{round(st.session_state.current_temp)} {st.session_state.temp_unit}", 
+                            delta= None if st.session_state.temp_diff == 0 else f"{round(st.session_state.temp_diff, 1)} {st.session_state.temp_unit}",
+                            width="stretch",
+                            )
+        with subCol1:
+            st.markdown(body=f"**Weather**<br>{st.session_state.current_week_day}, {st.session_state.current_time[-5:]}<br>{st.session_state.weather_description[1]}",
+                        text_alignment="right",
+                        unsafe_allow_html=True,
+                        width="stretch"
                         )
+    with col1:
+        st.image("https://png.pngtree.com/thumb_back/fh260/background/20240408/pngtree-clouds-in-sky-sky-in-summer-weather-upstairs-summer-day-image_15651093.jpg", 
+                width="stretch",
+                )
 
-with col0:
-    subCol0, subCol1 = st.columns(2,
-                                  vertical_alignment="center",
-                                  gap=None,                
-                                  )
-    with subCol0:
-        metric = st.metric(label=st.session_state.current_city, 
-                        value=f"{st.session_state.weather_description[0]}{round(st.session_state.current_temp)} {st.session_state.temp_unit}", 
-                        delta= None if st.session_state.temp_diff == 0 else f"{round(st.session_state.temp_diff, 1)} {st.session_state.temp_unit}",
-                        width="stretch",
+    col3, col4 = st.columns([2, 1], vertical_alignment="center")
+    with col3:
+        tab1, tab2, tab3 = st.tabs(["Temperature", "Rain", "Wind"])
+        with tab1:
+            fig = temperature_line_chart(st.session_state.week_temperature_data[st.session_state.current_week_day], "time", 'temperature_2m')
+            st.plotly_chart(fig, theme="streamlit", config={"displayModeBar": False})
+
+    with col4:
+        st.markdown(body=f"Rain<br>Humidity<br>Wind",
+                        text_alignment="center",
+                        unsafe_allow_html=True,
                         )
-    with subCol1:
-        st.markdown(body=f"**Weather**<br>{st.session_state.current_week_day}, {st.session_state.current_time[-5:]}<br>{st.session_state.weather_description[1]}",
-                    text_alignment="right",
-                    unsafe_allow_html=True,
-                    width="stretch"
-                    )
-with col1:
-    st.image("https://png.pngtree.com/thumb_back/fh260/background/20240408/pngtree-clouds-in-sky-sky-in-summer-weather-upstairs-summer-day-image_15651093.jpg", 
-             width="stretch",
-             )
-
-col3, col4 = st.columns([2, 1], vertical_alignment="center")
-with col3:
-    tab1, tab2, tab3 = st.tabs(["Temperature", "Rain", "Wind"])
-    with tab1:
-        @st.fragment
-        def render_chart():
-            fig = temperature_line_chart(st.session_state.week_temeprature_data[st.session_state.current_week_day], "time", 'temperature_2m')
-            clicked_data = st.plotly_chart(fig, theme="streamlit", on_select="rerun", config={"displayModeBar": False})
-            if clicked_data:
-                st.write(clicked_data)
-
-        render_chart()
-
-    with tab2:
-        st.write("In progress")
-    with tab3:
-        st.write("In progress")
-with col4:
-    st.space(size="stretch")
-    st.markdown(body=f"Rain<br>Humidity<br>Wind",
-                    text_alignment="center",
-                    unsafe_allow_html=True,
-                    )
-
+if st.session_state.current_city:
+    main()
